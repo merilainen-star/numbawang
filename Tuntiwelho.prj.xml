@@ -1,0 +1,165 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TaskerData sr="" dvi="1" tv="6.2.9">
+
+	<!-- ==================== PROFILE: Morning Reminder at 07:30 (Mon-Fri) ==================== -->
+	<Profile sr="prof100" ve="2">
+		<id>100</id>
+		<mid0>200</mid0>
+		<nme>Tuntiwelho Aamu</nme>
+		<Time sr="con0" ve="2">
+			<fh>7</fh>
+			<fm>30</fm>
+			<th>7</th>
+			<tm>30</tm>
+		</Time>
+		<Day sr="con1">
+			<wday>2,3,4,5,6</wday>
+		</Day>
+	</Profile>
+
+	<!-- ==================== PROFILE: Afternoon Reminder at 16:00 (Mon-Fri) ==================== -->
+	<Profile sr="prof101" ve="2">
+		<id>101</id>
+		<mid0>201</mid0>
+		<nme>Tuntiwelho Ilta</nme>
+		<Time sr="con0" ve="2">
+			<fh>16</fh>
+			<fm>0</fm>
+			<th>16</th>
+			<tm>0</tm>
+		</Time>
+		<Day sr="con1">
+			<wday>2,3,4,5,6</wday>
+		</Day>
+	</Profile>
+
+	<!-- ==================== PROJECT ==================== -->
+	<Project sr="proj0" ve="2">
+		<name>Tuntiwelho</name>
+		<pids>100,101</pids>
+		<tids>200,201,300,301</tids>
+	</Project>
+
+	<!-- ==================== TASK: Show Morning Notification ==================== -->
+	<Task sr="task200">
+		<id>200</id>
+		<nme>Näytä Aamu-ilmoitus</nme>
+		<Action sr="act0" ve="7">
+			<code>523</code>
+			<Str sr="arg1" ve="3">Tuntivelho</Str>
+			<Str sr="arg9" ve="3">Töihin? 🏢</Str>
+			<Int sr="arg2" val="77"/>
+			<Img sr="arg3" ve="2">hd_device_access_time</Img>
+			<Int sr="arg6" val="0"/>
+			<Int sr="arg7" val="1"/>
+			<Str sr="arg10" ve="3">Sisään</Str>
+			<Str sr="arg11" ve="3">Punch In</Str>
+		</Action>
+	</Task>
+
+	<!-- ==================== TASK: Show Afternoon Notification ==================== -->
+	<Task sr="task201">
+		<id>201</id>
+		<nme>Näytä Ilta-ilmoitus</nme>
+		<Action sr="act0" ve="7">
+			<code>523</code>
+			<Str sr="arg1" ve="3">Tuntivelho</Str>
+			<Str sr="arg9" ve="3">Kotiin? 🏠</Str>
+			<Int sr="arg2" val="78"/>
+			<Img sr="arg3" ve="2">hd_device_access_time</Img>
+			<Int sr="arg6" val="0"/>
+			<Int sr="arg7" val="1"/>
+			<Str sr="arg10" ve="3">Ulos</Str>
+			<Str sr="arg11" ve="3">Punch Out</Str>
+		</Action>
+	</Task>
+
+	<!-- ==================== TASK: Punch In (Termux) ==================== -->
+	<Task sr="task300">
+		<id>300</id>
+		<nme>Punch In</nme>
+		<Action sr="act0" ve="7">
+			<code>130</code>
+			<Bundle sr="arg0">
+				<Str sr="arg1" ve="3">com.termux.tasker</Str>
+				<Str sr="arg2" ve="3">com.termux.tasker.FireReceiver</Str>
+				<Str sr="com.termux.tasker.extra.EXECUTABLE" ve="3">punch_in.sh</Str>
+				<Int sr="com.termux.tasker.extra.BACKGROUND" val="1"/>
+				<Str sr="net.dinglisch.android.tasker.RELEVANT_VARIABLES" ve="3">%stdout
+Standard Output
+true
+%stderr
+Standard Error
+true
+%result
+Exit Code
+false</Str>
+				<Str sr="regular0" ve="3">com.termux.tasker</Str>
+				<Str sr="regular1" ve="3">com.termux.tasker.FireReceiver</Str>
+			</Bundle>
+			<Str sr="arg1" ve="3">com.termux.tasker</Str>
+			<Str sr="arg2" ve="3">com.termux.tasker.FireReceiver</Str>
+		</Action>
+		<!-- Dismiss the notification after punching -->
+		<Action sr="act1" ve="7">
+			<code>524</code>
+			<Str sr="arg1" ve="3">Töihin? 🏢</Str>
+			<Int sr="arg2" val="77"/>
+		</Action>
+		<Action sr="act2" ve="7">
+			<code>524</code>
+			<Str sr="arg1" ve="3">Kotiin? 🏠</Str>
+			<Int sr="arg2" val="78"/>
+		</Action>
+		<!-- Flash confirmation -->
+		<Action sr="act3" ve="7">
+			<code>548</code>
+			<Str sr="arg1" ve="3">✅ Sisään leimattu!</Str>
+		</Action>
+	</Task>
+
+	<!-- ==================== TASK: Punch Out (Termux) ==================== -->
+	<Task sr="task301">
+		<id>301</id>
+		<nme>Punch Out</nme>
+		<Action sr="act0" ve="7">
+			<code>130</code>
+			<Bundle sr="arg0">
+				<Str sr="arg1" ve="3">com.termux.tasker</Str>
+				<Str sr="arg2" ve="3">com.termux.tasker.FireReceiver</Str>
+				<Str sr="com.termux.tasker.extra.EXECUTABLE" ve="3">punch_out.sh</Str>
+				<Int sr="com.termux.tasker.extra.BACKGROUND" val="1"/>
+				<Str sr="net.dinglisch.android.tasker.RELEVANT_VARIABLES" ve="3">%stdout
+Standard Output
+true
+%stderr
+Standard Error
+true
+%result
+Exit Code
+false</Str>
+				<Str sr="regular0" ve="3">com.termux.tasker</Str>
+				<Str sr="regular1" ve="3">com.termux.tasker.FireReceiver</Str>
+			</Bundle>
+			<Str sr="arg1" ve="3">com.termux.tasker</Str>
+			<Str sr="arg2" ve="3">com.termux.tasker.FireReceiver</Str>
+		</Action>
+		<!-- Dismiss the notification after punching -->
+		<Action sr="act1" ve="7">
+			<code>524</code>
+			<Str sr="arg1" ve="3">Töihin? 🏢</Str>
+			<Int sr="arg2" val="77"/>
+		</Action>
+		<Action sr="act2" ve="7">
+			<code>524</code>
+			<Str sr="arg1" ve="3">Kotiin? 🏠</Str>
+			<Int sr="arg2" val="78"/>
+		</Action>
+		<!-- Flash confirmation -->
+		<Action sr="act3" ve="7">
+			<code>548</code>
+			<Str sr="arg1" ve="3">✅ Ulos leimattu!</Str>
+		</Action>
+	</Task>
+
+</TaskerData>

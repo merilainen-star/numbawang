@@ -1,0 +1,11 @@
+# Reverse engineering helper scripts (not needed on Android)
+extract_*.py
+fetch_*.py
+get_*.py
+test_*.py
+check_*.py
+format_js.py
+introspect.py
+
+# Downloaded JS bundle
+tuntiwelho_main_formatted.js
