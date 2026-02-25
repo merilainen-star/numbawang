@@ -43,7 +43,7 @@
 		<Action sr="act0" ve="7">
 			<code>523</code>
 			<Str sr="arg1" ve="3">Tuntivelho</Str>
-			<Str sr="arg2" ve="3">Töihin? 🏢 Paina Sisään.</Str>
+			<Str sr="arg2" ve="3">Töihin? Paina Sisään.</Str>
 			<Int sr="arg6" val="5"/>
 		</Action>
 	</Task>
@@ -54,7 +54,7 @@
 		<Action sr="act0" ve="7">
 			<code>523</code>
 			<Str sr="arg1" ve="3">Tuntivelho</Str>
-			<Str sr="arg2" ve="3">Kotiin? 🏠 Paina Ulos.</Str>
+			<Str sr="arg2" ve="3">Kotiin? Paina Ulos.</Str>
 			<Int sr="arg6" val="5"/>
 		</Action>
 	</Task>
@@ -63,14 +63,23 @@
 		<id>300</id>
 		<nme>Punch In</nme>
 		<Action sr="act0" ve="7">
-			<code>123</code>
-			<Str sr="arg1" ve="3">am broadcast --user 0 -n com.termux.tasker/.FireReceiver --es com.termux.tasker.extra.EXECUTABLE punch_in.sh 2&gt;&amp;1</Str>
-			<Int sr="arg2" val="0"/>
-			<Int sr="arg3" val="10"/>
+			<code>877</code>
+			<Str sr="arg0" ve="3">com.termux.tasker.FireReceiver</Str>
+			<Str sr="arg1" ve="3">android.intent.action.MAIN</Str>
+			<Str sr="arg2" ve="3"></Str>
+			<Str sr="arg3" ve="3"></Str>
+			<Str sr="arg4" ve="3">com.termux.tasker</Str>
+			<Str sr="arg5" ve="3">com.termux.tasker.FireReceiver</Str>
+			<Int sr="arg6" val="2"/>
+			<Str sr="arg7" ve="3">com.termux.tasker.extra.EXECUTABLE:punch_in.sh</Str>
 		</Action>
 		<Action sr="act1" ve="7">
+			<code>779</code>
+			<Str sr="arg1" ve="3">Tuntivelho</Str>
+		</Action>
+		<Action sr="act2" ve="7">
 			<code>548</code>
-			<Str sr="arg1" ve="3">✅ Sisään leimattu!</Str>
+			<Str sr="arg1" ve="3">Sisään leimattu!</Str>
 		</Action>
 	</Task>
 
@@ -78,14 +87,23 @@
 		<id>301</id>
 		<nme>Punch Out</nme>
 		<Action sr="act0" ve="7">
-			<code>123</code>
-			<Str sr="arg1" ve="3">am broadcast --user 0 -n com.termux.tasker/.FireReceiver --es com.termux.tasker.extra.EXECUTABLE punch_out.sh 2&gt;&amp;1</Str>
-			<Int sr="arg2" val="0"/>
-			<Int sr="arg3" val="10"/>
+			<code>877</code>
+			<Str sr="arg0" ve="3">com.termux.tasker.FireReceiver</Str>
+			<Str sr="arg1" ve="3">android.intent.action.MAIN</Str>
+			<Str sr="arg2" ve="3"></Str>
+			<Str sr="arg3" ve="3"></Str>
+			<Str sr="arg4" ve="3">com.termux.tasker</Str>
+			<Str sr="arg5" ve="3">com.termux.tasker.FireReceiver</Str>
+			<Int sr="arg6" val="2"/>
+			<Str sr="arg7" ve="3">com.termux.tasker.extra.EXECUTABLE:punch_out.sh</Str>
 		</Action>
 		<Action sr="act1" ve="7">
+			<code>779</code>
+			<Str sr="arg1" ve="3">Tuntivelho</Str>
+		</Action>
+		<Action sr="act2" ve="7">
 			<code>548</code>
-			<Str sr="arg1" ve="3">✅ Ulos leimattu!</Str>
+			<Str sr="arg1" ve="3">Ulos leimattu!</Str>
 		</Action>
 	</Task>
 
