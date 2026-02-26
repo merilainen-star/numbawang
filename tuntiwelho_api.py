@@ -38,6 +38,17 @@ urllib.request.install_opener(opener)
 
 API_URL = "https://app.tuntivelho.com/tvv-mobile/backend/public/graphql"
 
+
+# --- Tasker Machine-Readable Output ---
+
+def emit_status(status, action, message=""):
+    """Print TV_STATUS and TV_RESULT lines for Tasker, then flush stdout."""
+    epoch = int(time.time())
+    print(f"TV_STATUS={status}")
+    print(f"TV_RESULT={status}|{action}|{epoch}|{message}")
+    sys.stdout.flush()
+
+
 # --- GraphQL Queries ---
 
 LOGIN_MUTATION = """
@@ -105,7 +116,11 @@ mutation leimaTallenna($input: LeimaInput!, $subuser: Int, $withStamps: Boolean 
 # --- Core Functions ---
 
 def graphql_request(query, variables, token=None):
-    """Send a GraphQL request. Backend requires array-wrapped payloads."""
+    """Send a GraphQL request. Backend requires array-wrapped payloads.
+
+    Raises RuntimeError with a short reason on HTTP or connection errors
+    so callers can emit machine-readable status before exiting.
+    """
     payload = [{"query": query, "variables": variables}]
     data = json.dumps(payload).encode('utf-8')
     headers = {
@@ -125,25 +140,30 @@ def graphql_request(query, variables, token=None):
     except urllib.error.HTTPError as e:
         body = e.read().decode('utf-8')
         print(f"HTTP Error {e.code}:\n{body}")
-        sys.exit(1)
+        raise RuntimeError(f"http_error_{e.code}")
     except Exception as e:
         print(f"Connection Error: {e}")
-        sys.exit(1)
+        raise RuntimeError("connection_error")
 
 
 def login(username, password):
-    res = graphql_request(LOGIN_MUTATION, {
-        "kayttajatunnus": username,
-        "salasana": password,
-        "subuser": False,
-        "kieliid": 1
-    })
+    try:
+        res = graphql_request(LOGIN_MUTATION, {
+            "kayttajatunnus": username,
+            "salasana": password,
+            "subuser": False,
+            "kieliid": 1
+        })
+    except RuntimeError as e:
+        emit_status("ERROR", "LOGIN", str(e))
+        sys.exit(1)
     data = res.get('data', {}).get('login', {})
     if data.get('success'):
         print(f"Logged in successfully as: {data.get('nimi')}")
         return data.get('token'), data.get('henkiloid')
     else:
         print("Login failed:", data.get('errors'))
+        emit_status("ERROR", "LOGIN", "login_failed")
         sys.exit(1)
 
 
@@ -204,10 +224,15 @@ def do_punch(token, action, talaatuid, tyopisteid, dry_run=False):
         print(f"\n[DRY RUN] Would punch {direction_name} with payload:")
         print(json.dumps(variables, indent=2))
         print("[DRY RUN] Remove --dry-run flag to actually stamp your timecard.")
+        emit_status("DRYRUN", direction_name, "dry_run")
         return
 
     print(f"Sending stamp {direction_name} request...")
-    res = graphql_request(PUNCH_MUTATION, variables, token=token)
+    try:
+        res = graphql_request(PUNCH_MUTATION, variables, token=token)
+    except RuntimeError as e:
+        emit_status("ERROR", direction_name, str(e))
+        sys.exit(1)
 
     errors = res.get("errors", [])
     leima_errors = (res.get("data", {}) or {}).get("leimaTallenna", {})
@@ -219,12 +244,17 @@ def do_punch(token, action, talaatuid, tyopisteid, dry_run=False):
             print(json.dumps(errors, indent=2))
         if leima_errors:
             print(json.dumps(leima_errors, indent=2))
+        reason = "graphql_error" if errors else "leima_error"
+        emit_status("ERROR", direction_name, reason)
+        sys.exit(1)
     else:
         print(f"Punch {direction_name} Successful!")
         stamp = (res.get("data", {}) or {}).get("leimaTallenna", {}).get("previousstamp", {})
+        stamp_id = stamp.get('tv_leimaid', '') if stamp else ''
         if stamp:
-            print(f"  Stamp ID: {stamp.get('tv_leimaid')}")
+            print(f"  Stamp ID: {stamp_id}")
             print(f"  Time: {stamp.get('aika')}")
+        emit_status("OK", direction_name, f"stamp_id={stamp_id}")
 
 
 def main():
@@ -237,17 +267,25 @@ def main():
                         help="Log in, print payload, but do NOT actually punch")
 
     args = parser.parse_args()
+    direction_name = "IN" if args.action == "punch_in" else (
+        "OUT" if args.action == "punch_out" else "LOGIN"
+    )
 
     # Step 1: Login (also establishes session cookie)
     token, henkiloid = login(args.username, args.password)
 
     if args.action == "test_login":
         print("Login Test Passed! Exiting without punching.")
+        emit_status("OK", "LOGIN", "ok")
         sys.exit(0)
 
     # Step 2: Fetch defaults
     print("Fetching user defaults...")
-    talaatuid, tyopisteid = get_defaults(token)
+    try:
+        talaatuid, tyopisteid = get_defaults(token)
+    except RuntimeError as e:
+        emit_status("ERROR", direction_name, str(e))
+        sys.exit(1)
 
     # Step 3: Punch
     do_punch(token, args.action, talaatuid, tyopisteid, dry_run=args.dry_run)
