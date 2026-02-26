@@ -51,12 +51,34 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 cat > ~/.termux/tasker/punch_in.sh << EOF
 #!/data/data/com.termux/files/usr/bin/bash
-python "$SCRIPT_DIR/tuntiwelho_api.py" --username "$TW_USER" --password "$TW_PASS" --action punch_in
+
+LOGFILE="\$HOME/tuntivelho.log"
+
+echo "==== \$(date) PUNCH_IN ====" >> "\$LOGFILE"
+
+python "$SCRIPT_DIR/tuntiwelho_api.py" \\
+  --username "$TW_USER" \\
+  --password "$TW_PASS" \\
+  --action punch_in \\
+  "\$@" 2>&1 | tee -a "\$LOGFILE"
+
+echo "" >> "\$LOGFILE"
 EOF
 
 cat > ~/.termux/tasker/punch_out.sh << EOF
 #!/data/data/com.termux/files/usr/bin/bash
-python "$SCRIPT_DIR/tuntiwelho_api.py" --username "$TW_USER" --password "$TW_PASS" --action punch_out
+
+LOGFILE="\$HOME/tuntivelho.log"
+
+echo "==== \$(date) PUNCH_OUT ====" >> "\$LOGFILE"
+
+python "$SCRIPT_DIR/tuntiwelho_api.py" \\
+  --username "$TW_USER" \\
+  --password "$TW_PASS" \\
+  --action punch_out \\
+  "\$@" 2>&1 | tee -a "\$LOGFILE"
+
+echo "" >> "\$LOGFILE"
 EOF
 
 chmod +x ~/.termux/tasker/punch_in.sh
