@@ -32,10 +32,19 @@ cd ~/tuntivelho && bash setup.sh
 
 ## Manual Usage
 
+Set your credentials as environment variables (recommended):
+```bash
+export TW_USER="you@email.com"
+export TW_PASS="your_password"
+
+python tuntiwelho_api.py --action punch_in
+python tuntiwelho_api.py --action punch_out
+python tuntiwelho_api.py --action test_login
+```
+
+Or pass them inline (less secure — visible in `ps` output):
 ```bash
 python tuntiwelho_api.py --username "you@email.com" --password "pass" --action punch_in
-python tuntiwelho_api.py --username "you@email.com" --password "pass" --action punch_out
-python tuntiwelho_api.py --username "you@email.com" --password "pass" --action test_login
 ```
 
 Add `--dry-run` to simulate without actually punching.

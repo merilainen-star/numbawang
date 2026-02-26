@@ -42,39 +42,74 @@ else
     exit 1
 fi
 
-# 3. Create Tasker scripts
+# 3. Store credentials securely
 echo ""
-echo "[3/4] Creating Tasker scripts..."
+echo "[3/4] Storing credentials..."
+CRED_DIR="$HOME/.config/tuntivelho"
+CRED_FILE="$CRED_DIR/credentials"
+mkdir -p "$CRED_DIR"
+cat > "$CRED_FILE" <<EOF
+# Tuntivelho credentials — DO NOT SHARE
+TW_USER="$TW_USER"
+TW_PASS="$TW_PASS"
+EOF
+chmod 700 "$CRED_DIR"
+chmod 600 "$CRED_FILE"
+echo "✓ Credentials saved to $CRED_FILE (mode 600)"
+
+# 4. Create Tasker scripts (credentials sourced at runtime)
+echo ""
+echo "[4/5] Creating Tasker scripts..."
 mkdir -p ~/.termux/tasker/
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-cat > ~/.termux/tasker/punch_in.sh << EOF
+cat > ~/.termux/tasker/punch_in.sh << 'SCRIPT_EOF'
 #!/data/data/com.termux/files/usr/bin/bash
 
-LOGFILE="\$HOME/tuntivelho.log"
+LOGFILE="$HOME/tuntivelho.log"
+CRED_FILE="$HOME/.config/tuntivelho/credentials"
 
-echo "==== \$(date) PUNCH_IN ====" >> "\$LOGFILE"
+if [ ! -f "$CRED_FILE" ]; then
+    echo "ERROR: Credentials file not found: $CRED_FILE" >&2
+    echo "Run setup.sh again to create it." >&2
+    exit 1
+fi
+source "$CRED_FILE"
+export TW_USER TW_PASS
 
+echo "==== $(date) PUNCH_IN ====" >> "$LOGFILE"
+
+SCRIPT_EOF
+# Append the python command with the resolved script directory
+cat >> ~/.termux/tasker/punch_in.sh <<EOF
 python "$SCRIPT_DIR/tuntiwelho_api.py" \\
-  --username "$TW_USER" \\
-  --password "$TW_PASS" \\
   --action punch_in \\
   "\$@" 2>&1 | tee -a "\$LOGFILE"
 
 echo "" >> "\$LOGFILE"
 EOF
 
-cat > ~/.termux/tasker/punch_out.sh << EOF
+cat > ~/.termux/tasker/punch_out.sh << 'SCRIPT_EOF'
 #!/data/data/com.termux/files/usr/bin/bash
 
-LOGFILE="\$HOME/tuntivelho.log"
+LOGFILE="$HOME/tuntivelho.log"
+CRED_FILE="$HOME/.config/tuntivelho/credentials"
 
-echo "==== \$(date) PUNCH_OUT ====" >> "\$LOGFILE"
+if [ ! -f "$CRED_FILE" ]; then
+    echo "ERROR: Credentials file not found: $CRED_FILE" >&2
+    echo "Run setup.sh again to create it." >&2
+    exit 1
+fi
+source "$CRED_FILE"
+export TW_USER TW_PASS
 
+echo "==== $(date) PUNCH_OUT ====" >> "$LOGFILE"
+
+SCRIPT_EOF
+# Append the python command with the resolved script directory
+cat >> ~/.termux/tasker/punch_out.sh <<EOF
 python "$SCRIPT_DIR/tuntiwelho_api.py" \\
-  --username "$TW_USER" \\
-  --password "$TW_PASS" \\
   --action punch_out \\
   "\$@" 2>&1 | tee -a "\$LOGFILE"
 
@@ -87,11 +122,13 @@ chmod +x ~/.termux/tasker/punch_out.sh
 echo "✓ Created ~/.termux/tasker/punch_in.sh"
 echo "✓ Created ~/.termux/tasker/punch_out.sh"
 
-# 4. Allow Termux:Tasker access
+# 5. Allow Termux:Tasker access (idempotent)
 echo ""
-echo "[4/4] Setting Termux properties..."
+echo "[5/5] Setting Termux properties..."
 mkdir -p ~/.termux/
-echo "allow-external-apps=true" >> ~/.termux/termux.properties 2>/dev/null || true
+if ! grep -q 'allow-external-apps=true' ~/.termux/termux.properties 2>/dev/null; then
+    echo "allow-external-apps=true" >> ~/.termux/termux.properties
+fi
 echo "✓ Enabled external app access"
 
 echo ""
@@ -107,3 +144,7 @@ echo ""
 echo "To test manually:"
 echo "  bash ~/.termux/tasker/punch_in.sh"
 echo "  bash ~/.termux/tasker/punch_out.sh"
+echo ""
+echo "Credentials are stored in: $CRED_FILE"
+echo "To change password: nano $CRED_FILE"
+

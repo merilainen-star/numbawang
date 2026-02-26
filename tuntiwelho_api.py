@@ -16,6 +16,7 @@ import urllib.error
 import json
 import ssl
 import sys
+import os
 import argparse
 import time
 from datetime import datetime, timezone
@@ -23,8 +24,12 @@ from http.cookiejar import CookieJar
 
 # --- SSL & Session Setup ---
 ssl_context = ssl.create_default_context()
-ssl_context.check_hostname = False
-ssl_context.verify_mode = ssl.CERT_NONE
+# NOTE: Using default trust store. If you get SSL errors on Termux, install
+# the certifi package: pip install certifi, then uncomment the next two lines:
+# import certifi
+# ssl_context = ssl.create_default_context(cafile=certifi.where())
+
+HTTP_TIMEOUT = 30  # seconds — prevents indefinite hangs on Tasker
 
 # The Tuntiwelho PHP backend uses a session cookie (Tyovuorovelho=...)
 # This cookie MUST be sent on subsequent requests or the server crashes with
@@ -134,16 +139,19 @@ def graphql_request(query, variables, token=None):
 
     req = urllib.request.Request(API_URL, data=data, headers=headers)
     try:
-        with urllib.request.urlopen(req) as response:
+        with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT) as response:
             res_array = json.loads(response.read().decode('utf-8'))
             return res_array[0]
     except urllib.error.HTTPError as e:
         body = e.read().decode('utf-8')
         print(f"HTTP Error {e.code}:\n{body}")
         raise RuntimeError(f"http_error_{e.code}")
-    except Exception as e:
+    except (urllib.error.URLError, ConnectionError, TimeoutError, OSError) as e:
         print(f"Connection Error: {e}")
         raise RuntimeError("connection_error")
+    except (json.JSONDecodeError, IndexError) as e:
+        print(f"Unexpected response format: {e}")
+        raise RuntimeError("parse_error")
 
 
 def login(username, password):
@@ -259,14 +267,18 @@ def do_punch(token, action, talaatuid, tyopisteid, dry_run=False):
 
 def main():
     parser = argparse.ArgumentParser(description="Tuntiwelho Auto-Puncher")
-    parser.add_argument("--username", required=True, help="Tuntiwelho username")
-    parser.add_argument("--password", required=True, help="Tuntiwelho password")
+    parser.add_argument("--username", default=os.environ.get("TW_USER"),
+                        help="Tuntiwelho username (or set TW_USER env var)")
+    parser.add_argument("--password", default=os.environ.get("TW_PASS"),
+                        help="Tuntiwelho password (or set TW_PASS env var)")
     parser.add_argument("--action", choices=["test_login", "punch_in", "punch_out"],
                         required=True, help="Action to perform")
     parser.add_argument("--dry-run", action="store_true",
                         help="Log in, print payload, but do NOT actually punch")
 
     args = parser.parse_args()
+    if not args.username or not args.password:
+        parser.error("Credentials required: use --username/--password or set TW_USER/TW_PASS env vars")
     direction_name = "IN" if args.action == "punch_in" else (
         "OUT" if args.action == "punch_out" else "LOGIN"
     )

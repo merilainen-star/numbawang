@@ -1,3 +1,14 @@
+# Python bytecode
+__pycache__/
+*.pyc
+
+# Editor / IDE
+.vscode/
+
+# AI agent artifacts
+.agents/
+tasker_ai_system_instructions.txt
+
 # Reverse engineering helper scripts (not needed on Android)
 extract_*.py
 fetch_*.py
