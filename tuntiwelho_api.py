@@ -19,7 +19,7 @@ import sys
 import os
 import argparse
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from http.cookiejar import CookieJar
 
 # --- SSL & Session Setup ---
@@ -42,6 +42,10 @@ opener = urllib.request.build_opener(
 urllib.request.install_opener(opener)
 
 API_URL = "https://app.tuntivelho.com/tvv-mobile/backend/public/graphql"
+
+# --- Workday Constants ---
+TARGET_WORKDAY_MINUTES = 7 * 60 + 30   # 7 h 30 min
+LUNCH_BREAK_MINUTES = 30               # automatic lunch deduction
 
 
 # --- Tasker Machine-Readable Output ---
@@ -113,6 +117,17 @@ mutation leimaTallenna($input: LeimaInput!, $subuser: Int, $withStamps: Boolean 
     }
     errors {
       message
+    }
+  }
+}
+"""
+
+# Query to fetch the employee's working time balance after punching
+BALANCE_QUERY = """
+query kellokortti($subuser: Int) {
+  kellokortti(subuser: $subuser) {
+    tase {
+      tase
     }
   }
 }
@@ -199,6 +214,100 @@ def get_defaults(token):
     return talaatuid, tyopisteid
 
 
+def fetch_balance(token):
+    """Fetch the employee's working time balance (Tase) from kellokortti.
+
+    The API returns the balance in seconds. This function converts it
+    to a human-readable HH:MM string (e.g. '27:59' or '-02:30').
+    Returns empty string if the balance cannot be fetched.
+    """
+    try:
+        res = graphql_request(BALANCE_QUERY, {"subuser": None}, token)
+        tase_obj = (res.get('data') or {}).get('kellokortti', {}).get('tase')
+        if not tase_obj:
+            return ""
+        tase_seconds = tase_obj.get('tase')
+        if tase_seconds is None:
+            return ""
+        sign = "-" if tase_seconds < 0 else ""
+        total = abs(int(tase_seconds))
+        hours = total // 3600
+        minutes = (total % 3600) // 60
+        return f"{sign}{hours}:{minutes:02d}"
+    except Exception:
+        return ""
+
+
+# --- Balance Delta Helpers ---
+
+def _minutes_to_signed_hhmm(total_minutes):
+    """Convert a signed minute value to '+H:MM' or '-H:MM' string."""
+    sign = "-" if total_minutes < 0 else "+"
+    abs_min = abs(total_minutes)
+    h = abs_min // 60
+    m = abs_min % 60
+    return f"{sign}{h}:{m:02d}"
+
+
+def _balance_str_to_minutes(balance_str):
+    """Convert a balance string like '27:59' or '-2:30' to signed minutes.
+
+    Accepts formats: '27:59', '-2:30', '+3:15', '0:45'.
+    Returns None if parsing fails.
+    """
+    if not balance_str:
+        return None
+    try:
+        negative = balance_str.startswith("-")
+        cleaned = balance_str.lstrip("+-")
+        parts = cleaned.split(":")
+        if len(parts) != 2:
+            return None
+        h, m = int(parts[0]), int(parts[1])
+        total = h * 60 + m
+        return -total if negative else total
+    except (ValueError, IndexError):
+        return None
+
+
+def _find_punch_in_time(previousstamps):
+    """Find the earliest punch-in timestamp (suuntaid==0) for today.
+
+    previousstamps is a list of dicts with 'aika' (epoch) and 'suuntaid'.
+    Returns a datetime in local time, or None.
+    """
+    if not previousstamps:
+        return None
+    today = datetime.now().date()
+    earliest = None
+    for stamp in previousstamps:
+        if stamp.get('suuntaid') != 0:
+            continue
+        aika = stamp.get('aika')
+        if aika is None:
+            continue
+        try:
+            dt = datetime.fromtimestamp(int(aika))
+        except (ValueError, TypeError, OSError):
+            continue
+        if dt.date() != today:
+            continue
+        if earliest is None or dt < earliest:
+            earliest = dt
+    return earliest
+
+
+def _calc_daily_delta(punch_in_dt, punch_out_dt):
+    """Calculate today's balance delta in minutes.
+
+    Subtracts LUNCH_BREAK_MINUTES and compares to TARGET_WORKDAY_MINUTES.
+    Returns signed minutes (positive = over target).
+    """
+    elapsed = (punch_out_dt - punch_in_dt).total_seconds() / 60.0
+    worked = elapsed - LUNCH_BREAK_MINUTES
+    return int(round(worked - TARGET_WORKDAY_MINUTES))
+
+
 def do_punch(token, action, talaatuid, tyopisteid, dry_run=False):
     """
     Punch IN or OUT.
@@ -257,12 +366,73 @@ def do_punch(token, action, talaatuid, tyopisteid, dry_run=False):
         sys.exit(1)
     else:
         print(f"Punch {direction_name} Successful!")
-        stamp = (res.get("data", {}) or {}).get("leimaTallenna", {}).get("previousstamp", {})
+        leima_data = (res.get("data", {}) or {}).get("leimaTallenna", {}) or {}
+        stamp = leima_data.get("previousstamp", {})
         stamp_id = stamp.get('tv_leimaid', '') if stamp else ''
         if stamp:
             print(f"  Stamp ID: {stamp_id}")
             print(f"  Time: {stamp.get('aika')}")
-        emit_status("OK", direction_name, f"stamp_id={stamp_id}")
+
+        # Fetch previous balance from API (non-fatal if it fails)
+        balance = fetch_balance(token)
+        if balance:
+            print(f"  Balance (API): {balance}")
+
+        # Build extra key=value fields for Tasker
+        extra_parts = [f"stamp_id={stamp_id}"]
+        now_time_str = datetime.now().strftime("%H:%M")
+
+        if action == "punch_out":
+            # --- Calculate today's daily delta ---
+            previousstamps = leima_data.get("previousstamps", []) or []
+            punch_in_dt = _find_punch_in_time(previousstamps)
+            punch_out_dt = datetime.now()
+            delta_str = ""
+            est_balance_str = ""
+
+            if punch_in_dt:
+                delta_minutes = _calc_daily_delta(punch_in_dt, punch_out_dt)
+                delta_str = _minutes_to_signed_hhmm(delta_minutes)
+                print(f"  Punch-in: {punch_in_dt.strftime('%H:%M')}")
+                print(f"  Punch-out: {punch_out_dt.strftime('%H:%M')}")
+                print(f"  Daily delta: {delta_str}")
+                extra_parts.append(f"delta={delta_str}")
+
+                # Estimated total balance = previous API balance + today's delta
+                if balance:
+                    prev_minutes = _balance_str_to_minutes(balance)
+                    if prev_minutes is not None:
+                        est_total = prev_minutes + delta_minutes
+                        est_balance_str = _minutes_to_signed_hhmm(est_total)
+                        extra_parts.append(f"est_balance={est_balance_str}")
+                        print(f"  Est. total balance: {est_balance_str}")
+            else:
+                print("  Warning: could not find today's punch-in time")
+
+            # Also include raw balance from API if available
+            if balance:
+                extra_parts.append(f"balance={balance}")
+
+            # Build display string: ULOS 16:20 +0:24 (+24:15)
+            display = f"ULOS {now_time_str}"
+            if delta_str:
+                display += f" {delta_str}"
+                if est_balance_str:
+                    display += f" ({est_balance_str})"
+            elif balance:
+                display += f" ({balance})"
+            extra_parts.append(f"display={display}")
+
+        elif action == "punch_in":
+            # For punch in, show previous known balance if available
+            if balance:
+                extra_parts.append(f"balance={balance}")
+            display = f"SISÄÄN {now_time_str}"
+            if balance:
+                display += f" ({balance})"
+            extra_parts.append(f"display={display}")
+
+        emit_status("OK", direction_name, "|".join(extra_parts))
 
 
 def main():
