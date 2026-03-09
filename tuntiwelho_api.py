@@ -270,27 +270,32 @@ def _balance_str_to_minutes(balance_str):
         return None
 
 
-def _find_punch_in_time(previousstamps, punch_out_dt=None):
+def _find_punch_in_time(previousstamps, out_aika=None):
     """Find the most recent punch-in stamp (suuntaid==0) before the punch-out.
 
-    previousstamps is a list of dicts with 'aika' (epoch) and 'suuntaid'.
-    Rather than requiring a strict same-calendar-day match (which breaks on
-    timezone drift, midnight-edge cases, or unexpected API epoch formats),
-    we find the most recent IN stamp whose timestamp is before punch_out_dt.
-    As a secondary safeguard we prefer stamps from the same local calendar
-    day, but we do NOT discard candidates that are off by one day due to
-    UTC/local skew — instead we accept any IN stamp within the last 24 h.
+    previousstamps is a list of dicts with 'aika' (int) and 'suuntaid'.
 
-    Returns a datetime in local time, or None.
+    IMPORTANT — API timestamp encoding:
+    The Tuntivelho API stores 'aika' as local-clock-time encoded as if it were
+    a UTC epoch (i.e. aika = local_wall_clock_time_as_utc_epoch).  On a device
+    set to EET (UTC+2) the values come out ~7200 s AHEAD of time.time().
+    Using datetime.fromtimestamp(aika) on such a device therefore adds the
+    timezone offset a second time, making the IN stamp appear to be ~2 h in
+    the future and causing the cutoff check to discard it.
+
+    Solution: compare aika integers directly against each other (both share the
+    same encoding so their difference equals the actual elapsed seconds), and
+    recover the display datetime with datetime.utcfromtimestamp(aika) which does
+    NOT apply a local-timezone shift and thus yields the correct local clock time.
+
+    Returns a naive datetime (local clock face time) for the best IN stamp, or None.
     """
     if not previousstamps:
         return None
-    if punch_out_dt is None:
-        punch_out_dt = datetime.now()
-    cutoff = punch_out_dt  # only look at stamps before the punch-out
-    max_lookback = timedelta(hours=24)  # do not look further back than 24 h
 
-    best = None
+    max_lookback_s = 86400   # 24 h in seconds; same scale as aika integers
+
+    best_aika = None
     for stamp in previousstamps:
         if stamp.get('suuntaid') != 0:
             continue
@@ -298,29 +303,34 @@ def _find_punch_in_time(previousstamps, punch_out_dt=None):
         if aika is None:
             continue
         try:
-            # aika may be seconds or milliseconds — normalise to seconds
             aika_int = int(aika)
-            if aika_int > 1e12:          # milliseconds (13-digit epoch)
+            if aika_int > 1e12:      # milliseconds → convert to seconds
                 aika_int //= 1000
-            dt = datetime.fromtimestamp(aika_int)
-        except (ValueError, TypeError, OSError):
+        except (ValueError, TypeError):
             continue
-        # Must be before the punch-out time
-        if dt >= cutoff:
-            continue
-        # Must be within the last 24 h (guards against stale previous-day stamps)
-        if cutoff - dt > max_lookback:
-            continue
-        if best is None or dt > best:    # most recent IN wins
-            best = dt
 
-    if best is None:
-        # Fallback: log what we actually received to help future debugging
+        # Compare aika integers directly to stay in the API's encoding space.
+        if out_aika is not None:
+            if aika_int >= out_aika:
+                continue   # stamp is at or after the OUT → skip
+            if out_aika - aika_int > max_lookback_s:
+                continue   # stamp is older than 24 h → skip
+
+        if best_aika is None or aika_int > best_aika:
+            best_aika = aika_int
+
+    if best_aika is None:
         print("  Debug previousstamps (suuntaid / aika):")
         for s in previousstamps:
             print(f"    suuntaid={s.get('suuntaid')} aika={s.get('aika')}")
+        return None
 
-    return best
+    # utcfromtimestamp correctly decodes the API's local-as-UTC encoding:
+    # it returns a naive datetime whose H:MM matches the original local clock time.
+    try:
+        return datetime.utcfromtimestamp(best_aika)
+    except (ValueError, OSError):
+        return None
 
 
 def _calc_daily_delta(punch_in_dt, punch_out_dt):
@@ -411,8 +421,24 @@ def do_punch(token, action, talaatuid, tyopisteid, dry_run=False):
         if action == "punch_out":
             # --- Calculate today's daily delta ---
             previousstamps = leima_data.get("previousstamps", []) or []
-            punch_out_dt = datetime.now()
-            punch_in_dt = _find_punch_in_time(previousstamps, punch_out_dt)
+            # Use the OUT stamp's raw aika for integer comparison against
+            # previousstamps (keeps us in the API's encoding space).
+            out_aika_raw = stamp.get('aika') if stamp else None
+            try:
+                out_aika_int = int(out_aika_raw) if out_aika_raw is not None else None
+                if out_aika_int and out_aika_int > 1e12:
+                    out_aika_int //= 1000
+            except (ValueError, TypeError):
+                out_aika_int = None
+            punch_in_dt = _find_punch_in_time(previousstamps, out_aika_int)
+            # Derive punch_out_dt in the same encoding space for delta arithmetic
+            if out_aika_int:
+                try:
+                    punch_out_dt = datetime.utcfromtimestamp(out_aika_int)
+                except (ValueError, OSError):
+                    punch_out_dt = datetime.now()
+            else:
+                punch_out_dt = datetime.now()
             delta_str = ""
             est_balance_str = ""
 
