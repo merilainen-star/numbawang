@@ -191,7 +191,12 @@ def login(username, password):
 
 
 def get_defaults(token):
-    """Fetch the user's kellokortti to get default talaatuid & tyopisteid."""
+    """Fetch the user's kellokortti to get default talaatuid & tyopisteid.
+
+    Also returns the previousstamp dict (may be None/empty) so it can be
+    used as a fallback punch-in timestamp when the punch mutation does not
+    return a populated previousstamps list.
+    """
     res = graphql_request(KELLOKORTTI_QUERY, {"subuser": None}, token)
     errors = res.get('errors', [])
     if errors:
@@ -199,7 +204,7 @@ def get_defaults(token):
 
     kk = res.get('data', {}).get('kellokortti', {})
     defaults = kk.get('selectiondefaults', {})
-    prev = kk.get('previousstamp', {})
+    prev = kk.get('previousstamp') or {}
 
     talaatuid = defaults.get('talaatuid')
     tyopisteid = defaults.get('tyopisteid')
@@ -211,7 +216,8 @@ def get_defaults(token):
         direction = "IN" if prev.get('suuntaid') == 0 else "OUT"
         print(f"  Last punch was: {direction}")
 
-    return talaatuid, tyopisteid
+    # Return prev so do_punch() can use it as a fallback IN-stamp
+    return talaatuid, tyopisteid, prev or None
 
 
 def fetch_balance(token):
@@ -344,9 +350,15 @@ def _calc_daily_delta(punch_in_dt, punch_out_dt):
     return int(round(worked - TARGET_WORKDAY_MINUTES))
 
 
-def do_punch(token, action, talaatuid, tyopisteid, dry_run=False):
+def do_punch(token, action, talaatuid, tyopisteid, dry_run=False,
+             prev_stamp_from_defaults=None):
     """
     Punch IN or OUT.
+
+    prev_stamp_from_defaults: the previousstamp dict returned by get_defaults()
+        (fields: tv_leimaid, aika, suuntaid).  Used as a fallback IN-timestamp
+        when the punch mutation response's previousstamps list is empty — which
+        happens when the API omits the @include(if: $withStamps) data.
     
     LeimaInput fields (reverse-engineered from JS bundle):
       - tapahtuma: "sisaan" | "ulos" | "tauolle" | "tauolta"
@@ -421,15 +433,35 @@ def do_punch(token, action, talaatuid, tyopisteid, dry_run=False):
         if action == "punch_out":
             # --- Calculate today's daily delta ---
             previousstamps = leima_data.get("previousstamps", []) or []
+            # DEBUG: show raw stamp count and contents so we can diagnose
+            # whether the API is populating previousstamps at all.
+            print(f"  Debug: previousstamps count = {len(previousstamps)}")
+            for s in previousstamps[:10]:  # cap at 10 to avoid spam
+                print(f"    suuntaid={s.get('suuntaid')} aika={s.get('aika')}")
+
+            # Fallback: if the mutation returned no previousstamps but we
+            # captured the previousstamp (singular) from get_defaults() earlier
+            # AND it was a punch-IN (suuntaid == 0), synthesise a one-item list
+            # from it so _find_punch_in_time() can still compute the delta.
+            if not previousstamps and prev_stamp_from_defaults:
+                psd = prev_stamp_from_defaults
+                if psd.get('suuntaid') == 0:
+                    print("  Debug: previousstamps empty — using kellokortti previousstamp as fallback IN")
+                    previousstamps = [psd]
+                else:
+                    print(f"  Debug: previousstamps empty and kellokortti previousstamp is not IN (suuntaid={psd.get('suuntaid')}) — cannot compute delta")
+
             # Use the OUT stamp's raw aika for integer comparison against
             # previousstamps (keeps us in the API's encoding space).
             out_aika_raw = stamp.get('aika') if stamp else None
+            print(f"  Debug: out stamp aika (raw) = {out_aika_raw}")
             try:
                 out_aika_int = int(out_aika_raw) if out_aika_raw is not None else None
                 if out_aika_int and out_aika_int > 1e12:
                     out_aika_int //= 1000
             except (ValueError, TypeError):
                 out_aika_int = None
+            print(f"  Debug: out_aika_int = {out_aika_int}")
             punch_in_dt = _find_punch_in_time(previousstamps, out_aika_int)
             # Derive punch_out_dt in the same encoding space for delta arithmetic
             if out_aika_int:
@@ -513,16 +545,17 @@ def main():
         emit_status("OK", "LOGIN", "ok")
         sys.exit(0)
 
-    # Step 2: Fetch defaults
+    # Step 2: Fetch defaults (also captures the previous stamp for fallback)
     print("Fetching user defaults...")
     try:
-        talaatuid, tyopisteid = get_defaults(token)
+        talaatuid, tyopisteid, prev_stamp = get_defaults(token)
     except RuntimeError as e:
         emit_status("ERROR", direction_name, str(e))
         sys.exit(1)
 
     # Step 3: Punch
-    do_punch(token, args.action, talaatuid, tyopisteid, dry_run=args.dry_run)
+    do_punch(token, args.action, talaatuid, tyopisteid, dry_run=args.dry_run,
+             prev_stamp_from_defaults=prev_stamp)
 
 
 if __name__ == "__main__":
