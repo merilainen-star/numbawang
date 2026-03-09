@@ -270,16 +270,27 @@ def _balance_str_to_minutes(balance_str):
         return None
 
 
-def _find_punch_in_time(previousstamps):
-    """Find the earliest punch-in timestamp (suuntaid==0) for today.
+def _find_punch_in_time(previousstamps, punch_out_dt=None):
+    """Find the most recent punch-in stamp (suuntaid==0) before the punch-out.
 
     previousstamps is a list of dicts with 'aika' (epoch) and 'suuntaid'.
+    Rather than requiring a strict same-calendar-day match (which breaks on
+    timezone drift, midnight-edge cases, or unexpected API epoch formats),
+    we find the most recent IN stamp whose timestamp is before punch_out_dt.
+    As a secondary safeguard we prefer stamps from the same local calendar
+    day, but we do NOT discard candidates that are off by one day due to
+    UTC/local skew — instead we accept any IN stamp within the last 24 h.
+
     Returns a datetime in local time, or None.
     """
     if not previousstamps:
         return None
-    today = datetime.now().date()
-    earliest = None
+    if punch_out_dt is None:
+        punch_out_dt = datetime.now()
+    cutoff = punch_out_dt  # only look at stamps before the punch-out
+    max_lookback = timedelta(hours=24)  # do not look further back than 24 h
+
+    best = None
     for stamp in previousstamps:
         if stamp.get('suuntaid') != 0:
             continue
@@ -287,14 +298,29 @@ def _find_punch_in_time(previousstamps):
         if aika is None:
             continue
         try:
-            dt = datetime.fromtimestamp(int(aika))
+            # aika may be seconds or milliseconds — normalise to seconds
+            aika_int = int(aika)
+            if aika_int > 1e12:          # milliseconds (13-digit epoch)
+                aika_int //= 1000
+            dt = datetime.fromtimestamp(aika_int)
         except (ValueError, TypeError, OSError):
             continue
-        if dt.date() != today:
+        # Must be before the punch-out time
+        if dt >= cutoff:
             continue
-        if earliest is None or dt < earliest:
-            earliest = dt
-    return earliest
+        # Must be within the last 24 h (guards against stale previous-day stamps)
+        if cutoff - dt > max_lookback:
+            continue
+        if best is None or dt > best:    # most recent IN wins
+            best = dt
+
+    if best is None:
+        # Fallback: log what we actually received to help future debugging
+        print("  Debug previousstamps (suuntaid / aika):")
+        for s in previousstamps:
+            print(f"    suuntaid={s.get('suuntaid')} aika={s.get('aika')}")
+
+    return best
 
 
 def _calc_daily_delta(punch_in_dt, punch_out_dt):
@@ -327,7 +353,7 @@ def do_punch(token, action, talaatuid, tyopisteid, dry_run=False):
         "tyopisteid": tyopisteid,
         "tyolajiid": None,
         "polaatuid": None,
-        "leimausaika": int(datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp()),
+        "leimausaika": int(datetime.now().timestamp()),
         "tapahtuma": tapahtuma,
     }
 
@@ -385,8 +411,8 @@ def do_punch(token, action, talaatuid, tyopisteid, dry_run=False):
         if action == "punch_out":
             # --- Calculate today's daily delta ---
             previousstamps = leima_data.get("previousstamps", []) or []
-            punch_in_dt = _find_punch_in_time(previousstamps)
             punch_out_dt = datetime.now()
+            punch_in_dt = _find_punch_in_time(previousstamps, punch_out_dt)
             delta_str = ""
             est_balance_str = ""
 

@@ -1,0 +1,5 @@
+# AI Assistant Rules
+
+## Security and Privacy
+- NEVER use real company-specific names, emails, user IDs, domains, or passwords in test files or script examples (e.g., no actual company email addresses).
+- Always use dummy placeholders such as `user@example.com`, `dummy_password`, or `John Doe` for any credentials or personal identifiable information (PII).
