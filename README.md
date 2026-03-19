@@ -6,6 +6,10 @@ Automates punch-in/out for the [Tuntivelho](https://app.tuntivelho.com) (Finago 
 > `/tvv-mobile/...` to `/mobiili/...`. This script now auto-tries the new
 > endpoint first and falls back to the old one for compatibility.
 
+## Release Notes
+
+See [`RELEASE_NOTES.md`](RELEASE_NOTES.md) for latest changes.
+
 ## Quick Setup (Android)
 
 1. Install from F-Droid: **Termux**, **Termux:Tasker**
