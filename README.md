@@ -2,6 +2,10 @@
 
 Automates punch-in/out for the [Tuntivelho](https://app.tuntivelho.com) (Finago Mobiili) timecard app, running on Android via **Termux + Tasker**.
 
+> Backend note (Mar 2026): Tuntivelho moved the mobile GraphQL endpoint from
+> `/tvv-mobile/...` to `/mobiili/...`. This script now auto-tries the new
+> endpoint first and falls back to the old one for compatibility.
+
 ## Quick Setup (Android)
 
 1. Install from F-Droid: **Termux**, **Termux:Tasker**
@@ -42,9 +46,33 @@ python tuntiwelho_api.py --action punch_out
 python tuntiwelho_api.py --action test_login
 ```
 
+Optional: force a specific API endpoint (normally not needed):
+```bash
+export TW_API_URL="https://app.tuntivelho.com/mobiili/backend/public/graphql"
+```
+
 Or pass them inline (less secure — visible in `ps` output):
 ```bash
 python tuntiwelho_api.py --username "you@email.com" --password "pass" --action punch_in
 ```
 
 Add `--dry-run` to simulate without actually punching.
+
+## Tasker Compatibility
+
+This endpoint fix does **not** change the Tasker output format. The script still
+emits the same machine-readable keys:
+
+- `TV_STATUS=...`
+- `TV_RESULT=STATUS|ACTION|EPOCH|message`
+
+Your existing Tasker profile/project logic should continue to work unchanged.
+
+## Troubleshooting
+
+- `HTTP Error 404 LOGIN`: backend endpoint has likely changed again. First pull
+  latest changes, then test with:
+  ```bash
+  python tuntiwelho_api.py --action test_login
+  ```
+- If needed, set `TW_API_URL` to a known working endpoint and retry.

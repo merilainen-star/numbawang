@@ -10,6 +10,10 @@ Usage:
   python tuntiwelho_api.py --username USER --password PASS --action punch_in --dry-run
 
 Requirements: Python 3 (stdlib only — no pip packages needed).
+
+Environment variables:
+  TW_USER / TW_PASS  -> credentials
+  TW_API_URL         -> optional GraphQL endpoint override
 """
 import urllib.request
 import urllib.error
@@ -41,7 +45,31 @@ opener = urllib.request.build_opener(
 )
 urllib.request.install_opener(opener)
 
-API_URL = "https://app.tuntivelho.com/tvv-mobile/backend/public/graphql"
+# Backend endpoint moved from /tvv-mobile to /mobiili in Mar 2026.
+# Keep both for compatibility; try new one first.
+DEFAULT_API_URLS = [
+    "https://app.tuntivelho.com/mobiili/backend/public/graphql",
+    "https://app.tuntivelho.com/tvv-mobile/backend/public/graphql",
+]
+
+
+def get_api_urls():
+    """Return API endpoint candidates (env override first)."""
+    env_url = os.environ.get("TW_API_URL")
+    urls = []
+    if env_url:
+        urls.append(env_url.strip())
+    urls.extend(DEFAULT_API_URLS)
+
+    # Preserve order while dropping duplicates/empties.
+    deduped = []
+    seen = set()
+    for url in urls:
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        deduped.append(url)
+    return deduped
 
 # --- Workday Constants ---
 TARGET_WORKDAY_MINUTES = 7 * 60 + 30   # 7 h 30 min
@@ -152,21 +180,37 @@ def graphql_request(query, variables, token=None):
     if token:
         headers["Authorization"] = f"Bearer {token}"
 
-    req = urllib.request.Request(API_URL, data=data, headers=headers)
-    try:
-        with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT) as response:
-            res_array = json.loads(response.read().decode('utf-8'))
-            return res_array[0]
-    except urllib.error.HTTPError as e:
-        body = e.read().decode('utf-8')
-        print(f"HTTP Error {e.code}:\n{body}")
-        raise RuntimeError(f"http_error_{e.code}")
-    except (urllib.error.URLError, ConnectionError, TimeoutError, OSError) as e:
-        print(f"Connection Error: {e}")
-        raise RuntimeError("connection_error")
-    except (json.JSONDecodeError, IndexError) as e:
-        print(f"Unexpected response format: {e}")
-        raise RuntimeError("parse_error")
+    api_urls = get_api_urls()
+
+    for idx, api_url in enumerate(api_urls):
+        req = urllib.request.Request(api_url, data=data, headers=headers)
+        try:
+            with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT) as response:
+                res_array = json.loads(response.read().decode('utf-8'))
+                return res_array[0]
+        except urllib.error.HTTPError as e:
+            body = e.read().decode('utf-8')
+            should_try_fallback = (e.code == 404 and idx < len(api_urls) - 1)
+            if should_try_fallback:
+                print(f"HTTP 404 from {api_url} - trying fallback endpoint...")
+                continue
+            print(f"HTTP Error {e.code} ({api_url}):\n{body}")
+            raise RuntimeError(f"http_error_{e.code}")
+        except (urllib.error.URLError, ConnectionError, TimeoutError, OSError) as e:
+            if idx < len(api_urls) - 1:
+                print(f"Connection error from {api_url} - trying fallback endpoint...")
+                continue
+            print(f"Connection Error ({api_url}): {e}")
+            raise RuntimeError("connection_error")
+        except (json.JSONDecodeError, IndexError) as e:
+            if idx < len(api_urls) - 1:
+                print(f"Unexpected response from {api_url} - trying fallback endpoint...")
+                continue
+            print(f"Unexpected response format ({api_url}): {e}")
+            raise RuntimeError("parse_error")
+
+    # Defensive fallback: loop should have returned or raised already.
+    raise RuntimeError("http_error_404")
 
 
 def login(username, password):
