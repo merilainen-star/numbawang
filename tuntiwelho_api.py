@@ -86,6 +86,36 @@ def emit_status(status, action, message=""):
     sys.stdout.flush()
 
 
+def _sanitize_error_message(msg):
+    """Make an API error message safe for the pipe-delimited TV_RESULT line.
+
+    Collapses whitespace/newlines and replaces '|' (the TV_RESULT field
+    separator) so an API message can never split TV_RESULT into extra
+    fields or break Tasker's parsing.
+    """
+    if not msg:
+        return ""
+    cleaned = " ".join(str(msg).split())
+    return cleaned.replace("|", "/")
+
+
+def _extract_api_error_message(errors, leima_errors, fallback):
+    """Build a human-readable error message from GraphQL/leimaTallenna errors.
+
+    leimaTallenna errors (e.g. "Suunta ei ole sallittu. Olet ehkä leimannut
+    jo ulos.") are the specific, user-facing reason for a failed punch, so
+    they take priority; top-level GraphQL errors are appended if present.
+    Falls back to `fallback` when neither source has a usable message.
+    """
+    messages = []
+    for err_list in (leima_errors, errors):
+        for err in (err_list or []):
+            msg = _sanitize_error_message(err.get("message") if isinstance(err, dict) else None)
+            if msg and msg not in messages:
+                messages.append(msg)
+    return "; ".join(messages) if messages else fallback
+
+
 # --- GraphQL Queries ---
 
 LOGIN_MUTATION = """
@@ -453,8 +483,10 @@ def do_punch(token, action, talaatuid, tyopisteid, dry_run=False,
             print(json.dumps(errors, indent=2))
         if leima_errors:
             print(json.dumps(leima_errors, indent=2))
-        reason = "graphql_error" if errors else "leima_error"
-        emit_status("ERROR", direction_name, reason)
+        message = _extract_api_error_message(
+            errors, leima_errors, fallback="Leimaus epäonnistui (syytä ei saatu API:lta)"
+        )
+        emit_status("ERROR", direction_name, message)
         sys.exit(1)
     else:
         print(f"Punch {direction_name} Successful!")
